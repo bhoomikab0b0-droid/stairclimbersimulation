@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adaptive Stair Climber</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+/* Layout: a robotics control station. Inputs on the left, the live 3D scene in the
+   centre, and under it the robot's own Sense -> Perceive -> Decide -> Act pipeline
+   with live values; charts and the decision log below. */
+:root {
+  --bg: #e9edf1; --panel: #ffffff; --panel-2: #f5f7f9; --ink: #131820; --ink-2: #4a5362; --ink-3: #7a8494; --line: #d8dee6;
+  --accent: #2347c9; --accent-ink: #ffffff;
+  --sense: #1f8fbf; --perceive: #7a52d6; --decide: #c46f0a; --act: #19935f;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  --ok: #11865b; --warn: #a86a12; --crit: #c93636;
+  --scene-bg: #dfe4ea;
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --panel: #161b22; --panel-2: #1c222b; --ink: #e7eaf0; --ink-2: #b0b8c5; --ink-3: #828b99; --line: #29303a;
+    --accent: #7a91ff; --accent-ink: #0e1116;
+    --sense: #49b6e6; --perceive: #a587ff; --decide: #f0a040; --act: #3fc58b;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --ok: #3fbf8a; --warn: #e0a640; --crit: #ef6b6b;
+    --scene-bg: #1a2029; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --panel: #161b22; --panel-2: #1c222b; --ink: #e7eaf0; --ink-2: #b0b8c5; --ink-3: #828b99; --line: #29303a;
+  --accent: #7a91ff; --accent-ink: #0e1116;
+  --sense: #49b6e6; --perceive: #a587ff; --decide: #f0a040; --act: #3fc58b;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --ok: #3fbf8a; --warn: #e0a640; --crit: #ef6b6b;
+  --scene-bg: #1a2029; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+.wrap > *, .top > div, .grid2 > * { min-width: 0; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.45; margin: 0; }
+.wrap { max-width: 1500px; margin: 0 auto; padding-inline: 16px; padding-block: 14px 48px; display: grid; gap: 14px; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0; letter-spacing: 0.01em; text-wrap: balance; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); font-weight: 700; }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.top { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
+.top h1 { font-size: clamp(26px, 3.2vw, 38px); font-weight: 700; line-height: 1; }
+.top h1 span { color: var(--accent); }
+.top p { margin: 4px 0 0; color: var(--ink-2); max-width: 75ch; }
+.run { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 5px; padding: 7px 12px; font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.flash { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+.pill { font: 700 11.5px var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.pill.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.pill.crit { background: color-mix(in srgb, var(--crit) 15%, transparent); color: var(--crit); }
+.pill.done { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+
+.main { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start; }
+.controls { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 12px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); max-height: calc(100vh - 16px); overflow-y: auto; }
+.controls h3 { font-size: 18px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.controls h3 small { font: 400 12px var(--font-body); color: var(--ink-3); }
+.field { display: grid; gap: 3px; }
+.field .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.field label { font-weight: 600; font-size: 13px; }
+.field output { font: 500 12.5px var(--font-mono); color: var(--ink-2); }
+.field input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+.field select { width: 100%; padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.hint { font-size: 12px; color: var(--ink-3); margin: 0; }
+.obs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.obs-list li { display: flex; justify-content: space-between; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px 4px 8px; font-size: 13px; }
+.obs-list button { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 2px 8px; font-size: 12px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.sep { border: 0; border-top: 1px solid var(--line); margin: 0; }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.stagecol { display: grid; gap: 14px; min-width: 0; }
+.viewport { position: relative; height: min(66vh, 640px); min-height: 380px; background: var(--scene-bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.viewport canvas { display: block; max-width: 100%; }
+.viewport { min-width: 0; }
+.hud { position: absolute; left: 12px; top: 12px; right: 190px; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; pointer-events: none; }
+.chip { background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line); border-left: 5px solid var(--decide); border-radius: 5px; padding: 5px 12px; max-width: 420px; }
+.chip b { display: block; font: 700 21px var(--font-display); letter-spacing: 0.02em; }
+.chip small { color: var(--ink-2); font-size: 12.5px; }
+.progress { background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line); border-radius: 5px; padding: 6px 10px; font-size: 12.5px; display: grid; gap: 4px; }
+.progress .steps { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
+.progress .steps i { width: 12px; height: 8px; border-radius: 2px; background: var(--line); display: block; }
+.progress .steps i.done { background: var(--act); }
+.progress .steps i.land { width: 22px; }
+.alert { position: absolute; left: 50%; transform: translateX(-50%); top: 84px; width: min(560px, 90%); background: var(--panel); border: 1px solid var(--warn); border-left: 5px solid var(--warn); border-radius: 6px; padding: 8px 12px; font-size: 13.5px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.15); display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.alert.crit { border-color: var(--crit); }
+.alert button { border: 1px solid var(--line); background: var(--panel-2); border-radius: 4px; padding: 4px 10px; font-weight: 600; white-space: nowrap; }
+.camtools { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+.camtools button { border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 92%, transparent); border-radius: 4px; padding: 5px 9px; font-size: 12.5px; font-weight: 600; }
+.camtools button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.piplabel { position: absolute; pointer-events: none; font: 600 11px var(--font-body); letter-spacing: 0.04em; color: #fff; background: rgb(0 0 0 / 0.6); padding: 3px 7px; border-radius: 3px; }
+.legend3d { position: absolute; right: 10px; top: 12px; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; font-size: 12px; display: grid; gap: 2px; pointer-events: none; }
+.legend3d span { display: flex; align-items: center; gap: 6px; }
+.legend3d i { width: 14px; height: 4px; display: inline-block; border-radius: 2px; }
+
+.pipeline { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.stage { padding: 12px 14px; display: grid; gap: 8px; align-content: start; min-width: 0; border-top: 4px solid var(--c); position: relative; }
+.stage + .stage { border-left: 1px solid var(--line); }
+.stage + .stage::before { content: "▶"; position: absolute; left: -8px; top: 12px; color: var(--c); font-size: 12px; background: var(--panel); line-height: 1; }
+.stage h2 { font-size: 21px; color: var(--c); display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.stage h2 small { font: 400 12px var(--font-body); color: var(--ink-3); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 13px; align-items: baseline; margin: 0; }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; }
+.kv dd small { color: var(--ink-3); }
+.kv .sub { grid-column: 1 / -1; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); font-weight: 700; margin-top: 4px; }
+.dots { display: inline-flex; gap: 4px; align-items: center; }
+.dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); display: inline-block; }
+.dots i.ok { background: var(--ok); }
+.dots i.on { background: var(--crit); }
+.states { display: flex; flex-wrap: wrap; gap: 3px; }
+.states span { font: 500 10.5px var(--font-mono); padding: 2px 5px; border-radius: 3px; background: var(--panel-2); color: var(--ink-3); border: 1px solid var(--line); }
+.states span.on { background: var(--decide); color: #fff; border-color: var(--decide); }
+.decision { font-size: 13px; color: var(--ink); background: var(--panel-2); border-radius: 5px; padding: 6px 8px; border-left: 3px solid var(--decide); min-height: 3.2em; }
+
+.row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.card h3 { font-size: 19px; }
+.card p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.card canvas { width: 100%; height: 220px; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 14px; }
+.log { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; display: grid; gap: 1px; font-size: 13px; }
+.log li { display: grid; grid-template-columns: 54px 1fr; gap: 8px; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.log li .mono { color: var(--ink-3); font-size: 12px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+td.num { font-family: var(--font-mono); }
+.about { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.about ul { margin: 0; padding-left: 18px; color: var(--ink-2); display: grid; gap: 3px; font-size: 13px; }
+
+@media (max-width: 1180px) {
+  .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stage:nth-child(3) { border-left: 0; }
+  .stage:nth-child(3)::before { display: none; }
+  .row3 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 900px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .controls { position: static; max-height: none; order: 2; min-width: 0; }
+  .stagecol { order: 1; }
+  .row2, .about { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .pipeline, .row3 { grid-template-columns: 1fr; }
+  .stage + .stage { border-left: 0; }
+  .stage::before { display: none; }
+  .viewport { height: 78vw; min-height: 300px; }
+  .legend3d { display: none; }
+  .hud { right: 12px; }
+  .alert { top: auto; bottom: 48px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Adaptive Stair-Climbing <span>Vacuum Cleaner</span></h1>
+      <p>Live autonomous simulation. Set up any staircase, change the surfaces and drop obstacles in its way: the robot senses, decides and climbs on its own.</p>
+    </div>
+    <div class="run">
+      <span class="pill" id="statusPill">Running</span>
+      <button class="btn primary" id="playBtn">❚❚ Pause</button>
+      <button class="btn" id="restartBtn">↺ Restart</button>
+      <label class="label" for="speedSel">Speed</label>
+      <select id="speedSel" class="btn">
+        <option value="1">1×</option><option value="2">2×</option><option value="4" selected>4×</option><option value="8">8×</option><option value="16">16×</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="main">
+    <aside class="controls" aria-label="Simulation inputs">
+      <h3>Staircase</h3>
+      <div class="field">
+        <label for="layout">Layout</label>
+        <select id="layout"><option value="uturn">U-turn: two flights with a half landing</option><option value="straight">Straight flight</option></select>
+      </div>
+      <div class="field"><div class="row"><label for="h">Riser height</label><output id="hOut"></output></div><input type="range" id="h" min="100" max="260" step="5" value="170"></div>
+      <div class="field"><div class="row"><label for="d">Tread depth</label><output id="dOut"></output></div><input type="range" id="d" min="260" max="420" step="5" value="340"></div>
+      <div class="field"><div class="row"><label for="W">Stair width</label><output id="WOut"></output></div><input type="range" id="W" min="720" max="1400" step="10" value="900"></div>
+      <div class="grid2">
+        <div class="field"><div class="row"><label for="n1">Flight 1 steps</label><output id="n1Out"></output></div><input type="range" id="n1" min="2" max="8" step="1" value="5"></div>
+        <div class="field" id="n2Field"><div class="row"><label for="n2">Flight 2</label><output id="n2Out"></output></div><input type="range" id="n2" min="2" max="8" step="1" value="4"></div>
+      </div>
+      <div class="field" id="LField"><div class="row"><label for="L">Landing depth</label><output id="LOut"></output></div><input type="range" id="L" min="700" max="1600" step="20" value="1100"></div>
+      <div class="field"><div class="row"><label for="jit">Step-to-step variation</label><output id="jitOut"></output></div><input type="range" id="jit" min="0" max="25" step="1" value="0"></div>
+      <p class="hint">Design limits: riser ≤ 220 mm (rack travel), tread ≥ 320 mm, width ≥ 720 mm, landing ≈ 850 mm deep to turn. Try values outside them to see the robot stop safely.</p>
+      <div class="field"><h3>Surfaces</h3></div>
+      <div class="grid2">
+        <div class="field"><label for="surf1">Flight 1</label><select id="surf1"></select></div>
+        <div class="field" id="surfLField"><label for="surfL">Landing</label><select id="surfL"></select></div>
+        <div class="field" id="surf2Field"><label for="surf2">Flight 2</label><select id="surf2"></select></div>
+      </div>
+      <div class="btnrow">
+        <button class="btn primary" id="applyBtn">Build &amp; restart</button>
+        <button class="btn" id="randomBtn">Random staircase</button>
+      </div>
+      <hr class="sep">
+      <h3>Obstacles <small>place or remove any time</small></h3>
+      <div class="grid2">
+        <div class="field"><label for="obType">Object</label><select id="obType"><option value="toy">Toy block, 4 cm</option><option value="shoe" selected>Shoe, 10 cm</option><option value="box">Parcel, 20 cm</option></select></div>
+        <div class="field"><label for="obLoc">Where</label><select id="obLoc"></select></div>
+      </div>
+      <div class="field"><div class="row"><label for="obFy">Across the stairs</label><output id="obFyOut"></output></div><input type="range" id="obFy" min="0" max="100" step="5" value="80"></div>
+      <button class="btn" id="addObBtn">＋ Place obstacle</button>
+      <ul class="obs-list" id="obList"></ul>
+      <hr class="sep">
+      <h3>Sensors &amp; view</h3>
+      <div class="field"><div class="row"><label for="noise">LiDAR range noise</label><output id="noiseOut"></output></div><input type="range" id="noise" min="0" max="15" step="1" value="4"></div>
+      <label class="check"><input type="checkbox" id="ovChk" checked> Show sensor beams and the map</label>
+      <label class="check"><input type="checkbox" id="pipChk" checked> Robot camera view</label>
+      <label class="check"><input type="checkbox" id="followChk" checked> Camera follows the robot</label>
+    </aside>
+
+    <section class="stagecol">
+      <div class="viewport" id="viewport">
+        <div class="hud">
+          <div class="chip" id="stateChip"><b>SCAN</b><small></small></div>
+          <div class="progress" id="progress"></div>
+        </div>
+        <div class="alert" id="alert" hidden><span id="alertText"></span><button id="alertBtn" hidden>Remove it</button></div>
+        <div class="legend3d" id="legend3d">
+          <span><i style="background:#ff3b30"></i>2D LiDAR</span>
+          <span><i style="background:#23c4e8"></i>Depth camera</span>
+          <span><i style="background:#ffa31a"></i>Obstacle points</span>
+          <span><i style="background:#3fd28a"></i>Ultrasonic</span>
+          <span><i style="background:#b06cff"></i>IR cliff</span>
+          <span><i style="background:#22d36b"></i>Planned path</span>
+        </div>
+        <div class="piplabel" id="pipLabel" hidden></div>
+        <div class="camtools" role="group" aria-label="Camera">
+          <button data-mode="follow" aria-pressed="true">Chase</button>
+          <button data-mode="side" aria-pressed="false">Side</button>
+          <button data-mode="overview" aria-pressed="false">Whole staircase</button>
+        </div>
+      </div>
+
+      <div class="pipeline" aria-label="Autonomy pipeline">
+        <div class="stage" style="--c: var(--sense)"><h2>Sense <small>raw sensor data</small></h2><dl class="kv" id="pSense"></dl></div>
+        <div class="stage" style="--c: var(--perceive)"><h2>Perceive <small>what it concludes</small></h2><dl class="kv" id="pPerceive"></dl></div>
+        <div class="stage" style="--c: var(--decide)"><h2>Decide <small>state machine</small></h2><div id="pDecide" style="display:grid;gap:8px"></div></div>
+        <div class="stage" style="--c: var(--act)"><h2>Act <small>actuator commands</small></h2><dl class="kv" id="pAct"></dl></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="row3">
+    <div class="card">
+      <h3>LiDAR scan to step geometry</h3>
+      <p>Latest 160-beam scan, levelled with the IMU and split into treads and risers.</p>
+      <canvas id="cLidar"></canvas>
+      <div class="legend"><span><i style="background:var(--s1)"></i>tread</span><span><i style="background:var(--s2)"></i>riser</span><span><i style="background:var(--ink-3)"></i>other</span></div>
+    </div>
+    <div class="card">
+      <h3>Kalman filter, last step scanned</h3>
+      <p>Noisy single-scan riser heights and the fused estimate against the true height.</p>
+      <canvas id="cKalman"></canvas>
+      <div class="legend"><span><i style="background:var(--s2)"></i>single scan</span><span><i style="background:var(--s1)"></i>Kalman estimate</span><span><i style="background:var(--ink-3)"></i>true height</span></div>
+    </div>
+    <div class="card">
+      <h3>Body pitch and racks, last 90 s</h3>
+      <p>Pitch stays near 0° while the racks move: the IMU levelling loop at work.</p>
+      <canvas id="cTime"></canvas>
+      <div class="legend"><span><i style="background:var(--s1)"></i>pitch (°, ×10)</span><span><i style="background:var(--s2)"></i>front rack (mm)</span><span><i style="background:var(--s3)"></i>rear rack (mm)</span></div>
+    </div>
+  </section>
+
+  <section class="row2">
+    <div class="card">
+      <h3>Decision log</h3>
+      <p>Every state change and the reason the robot gave for it.</p>
+      <ul class="log" id="log"></ul>
+    </div>
+    <div class="card">
+      <h3>Mission report</h3>
+      <p id="reportLead">Filled in step by step: what the robot measured against the true staircase.</p>
+      <div class="tablewrap"><table id="report"></table></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>How the autonomy works</h3>
+    <div class="about">
+      <div><div class="label">Sense</div><ul>
+        <li>2D LiDAR: 160 beams in a vertical fan on the left front unit</li>
+        <li>RGB-D depth camera (87° × 58°) on the frame</li>
+        <li>Ultrasonic rangers: two forward, one on each side</li>
+        <li>4 IR cliff sensors, IMU, wheel and rack encoders, bumper switches</li>
+      </ul></div>
+      <div><div class="label">Perceive &amp; decide</div><ul>
+        <li>LiDAR scan segmentation, then a Kalman filter over 12 scans</li>
+        <li>The depth camera confirms a riser spans the full width, finds obstacles and classifies the surface</li>
+        <li>Gait library LOW / STANDARD / HIGH with safety limits and obstacle rules</li>
+        <li>On the landing: occupancy map, A* path planning, a 180° turn and re-alignment on the walls</li>
+      </ul></div>
+      <div><div class="label">Act</div><ul>
+        <li>PID loops on each rack, the frame width, travel distance and heading</li>
+        <li>IMU pitch PID trims the front rack while the back units lift</li>
+        <li>Moves end on sensor events (bumper, cliff sensor), so wheel slip cannot fool it</li>
+        <li>Mop + vacuum head sweeps each tread; carpet switches to vacuum only</li>
+      </ul></div>
+    </div>
+    <p class="hint">Runs entirely in your browser on a rigid-body contact model: the body's resting pose comes from its wheel and pad contacts, with collisions, wheel slip and sensor noise. The same perception and control algorithms also run in the project's PyBullet physics version.</p>
+  </section>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="js/world.js"></script>
+<script src="js/robot.js"></script>
+<script src="js/autonomy.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

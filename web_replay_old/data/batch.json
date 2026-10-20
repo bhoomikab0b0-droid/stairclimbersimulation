@@ -1,0 +1,11 @@
+{
+ "runs": 30,
+ "successful_runs": 30,
+ "step_climb_success_rate": 1.0,
+ "mean_height_error_mm": 1.7,
+ "mean_depth_error_mm": 0.32,
+ "worst_pitch_deg": 7.1,
+ "worst_roll_deg": 0.07,
+ "mean_time_per_step_s": 31.7,
+ "mean_reachable_cleaning": 0.936
+}

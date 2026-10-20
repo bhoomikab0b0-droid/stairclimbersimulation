@@ -1,0 +1,7 @@
+Adaptive Stair-Climbing Vacuum Cleaner - live simulation
+
+1. Unzip this folder.
+2. Double-click index.html. It opens in Chrome, Edge, Firefox or Safari.
+   No internet connection and no installation are needed.
+
+Keep the folders js, vendor and fonts next to index.html.

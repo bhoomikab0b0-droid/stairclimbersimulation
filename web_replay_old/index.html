@@ -1,0 +1,701 @@
+<meta charset="utf-8">
+<title>Adaptive Stair Climber</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: engineering review sheet. Title block on top, 3D replay with an
+   instrument panel beside it, transport + phase strip below, then synced charts
+   and the evidence (accuracy table, batch results, method). */
+:root {
+  --bg: #eef1f4;
+  --panel: #ffffff;
+  --ink: #141820;
+  --ink-2: #4a5261;
+  --ink-3: #788191;
+  --line: #d9dee5;
+  --accent: #2442c8;      /* blue back unit in the patent drawings */
+  --accent-2: #c42a20;    /* red front unit */
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --crit: #c93636; --good: #11865b;
+  --scene-bg: #e6eaef; --floor: #d3d7dc; --stair-a: #a9a296; --stair-b: #b8b1a5; --wall: #f4f5f7;
+  --dirt: #7a4f26;
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1217; --panel: #171b22; --ink: #e8ebf0; --ink-2: #b2b9c5; --ink-3: #848c9a; --line: #2a303a;
+    --accent: #7a91ff; --accent-2: #ff6f62;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --crit: #e66767; --good: #3fbf8a;
+    --scene-bg: #161a21; --floor: #232831; --stair-a: #575249; --stair-b: #625d53; --wall: #2c323c; --dirt: #b78350;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1217; --panel: #171b22; --ink: #e8ebf0; --ink-2: #b2b9c5; --ink-3: #848c9a; --line: #2a303a;
+  --accent: #7a91ff; --accent-2: #ff6f62;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --crit: #e66767; --good: #3fbf8a;
+  --scene-bg: #161a21; --floor: #232831; --stair-a: #575249; --stair-b: #625d53; --wall: #2c323c; --dirt: #b78350;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-inline: 20px; padding-block: 20px 56px; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+.mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); font-weight: 600; }
+
+/* title block */
+.titleblock { display: grid; grid-template-columns: 1fr auto; gap: 16px 24px; align-items: end; border-bottom: 2px solid var(--ink); padding-bottom: 14px; }
+.titleblock h1 { font-size: clamp(30px, 4.4vw, 46px); line-height: 1; font-weight: 700; }
+.titleblock h1 span { color: var(--accent); }
+.titleblock p { margin: 6px 0 0; color: var(--ink-2); max-width: 70ch; }
+.meta { display: grid; grid-template-columns: auto auto; gap: 2px 14px; font-size: 13px; color: var(--ink-2); }
+.meta b { font-weight: 600; color: var(--ink); }
+
+/* scenario picker */
+.scenarios { display: flex; flex-wrap: wrap; gap: 8px; }
+.scenarios button { font: 600 14px var(--font-body); padding: 8px 14px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 4px; cursor: pointer; display: flex; gap: 8px; align-items: center; }
+.scenarios button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.scenarios button small { font-weight: 400; color: var(--ink-3); }
+.pill { font: 600 11px var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; }
+.pill.ok { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+.pill.bad { color: var(--crit); background: color-mix(in srgb, var(--crit) 14%, transparent); }
+
+/* stage */
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; }
+.viewport { position: relative; background: var(--scene-bg); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; min-height: 420px; }
+.viewport canvas { display: block; width: 100%; height: 100%; }
+.hud { position: absolute; left: 12px; top: 12px; display: grid; gap: 6px; pointer-events: none; }
+.statechip { font: 700 22px var(--font-display); letter-spacing: 0.02em; background: var(--panel); border: 1px solid var(--line); border-left: 5px solid var(--s1); padding: 4px 12px; border-radius: 4px; }
+.statechip small { display: block; font: 400 12.5px var(--font-body); color: var(--ink-2); letter-spacing: 0; }
+.viewhint { position: absolute; right: 10px; bottom: 8px; font-size: 12px; color: var(--ink-3); pointer-events: none; }
+.viewtools { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }
+.viewtools button, .transport button, .transport select { font: 600 13px var(--font-body); background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+.viewtools button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-2); font-size: 14px; }
+
+/* instrument panel */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.fsm { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: st; }
+.fsm li { display: grid; grid-template-columns: 22px 10px 1fr; gap: 8px; align-items: center; font-size: 13.5px; color: var(--ink-3); padding: 3px 6px; border-radius: 3px; }
+.fsm li::before { counter-increment: st; content: counter(st, decimal-leading-zero); font: 400 11px var(--font-mono); }
+.fsm li i { width: 10px; height: 10px; border-radius: 2px; display: block; }
+.fsm li.on { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--ink); font-weight: 600; }
+.fsm li.done { color: var(--ink-2); }
+.readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.readouts div { display: grid; gap: 1px; min-width: 0; }
+.readouts .v { font: 500 17px var(--font-mono); font-variant-numeric: tabular-nums; }
+.readouts .v small { font-size: 12px; color: var(--ink-3); font-weight: 400; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--s3); }
+
+/* transport */
+.transport { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.transport .time { font: 500 14px var(--font-mono); color: var(--ink-2); min-width: 120px; text-align: right; }
+.scrub { display: grid; gap: 4px; min-width: 0; }
+.scrub input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+.strip { position: relative; height: 12px; border-radius: 2px; overflow: hidden; background: var(--line); cursor: pointer; }
+.strip canvas { width: 100%; height: 100%; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* charts + evidence */
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0; display: grid; gap: 8px; align-content: start; }
+.card h2 { font-size: 22px; }
+.card h3 { font-size: 18px; }
+.card p { margin: 0; color: var(--ink-2); }
+.chart { position: relative; }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart text { font: 11px var(--font-mono); fill: var(--ink-3); }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font: 12px var(--font-mono); color: var(--ink); box-shadow: 0 4px 14px rgb(0 0 0 / 0.12); white-space: nowrap; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 600; color: var(--ink-3); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+td.num { font-family: var(--font-mono); }
+td.err { color: var(--ink-2); }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.stats div { display: grid; gap: 2px; border-top: 2px solid var(--ink); padding-top: 8px; }
+.stats b { font: 700 30px var(--font-display); line-height: 1; }
+.stats span { font-size: 13px; color: var(--ink-2); }
+.method { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.method div { display: grid; gap: 4px; align-content: start; }
+.method ul, .card ul { margin: 0; padding-left: 18px; color: var(--ink-2); display: grid; gap: 3px; }
+.events { list-style: none; margin: 0; padding: 0; max-height: 210px; overflow-y: auto; display: grid; gap: 1px; font-size: 13px; }
+.events li { display: grid; grid-template-columns: 56px 1fr; gap: 8px; padding: 3px 4px; border-radius: 3px; cursor: pointer; color: var(--ink-2); }
+.events li:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.events li.future { opacity: 0.4; }
+.events li .mono { color: var(--ink-3); font-size: 12px; }
+.events li b { color: var(--ink); font-weight: 600; }
+.note { font-size: 13px; color: var(--ink-3); }
+
+@media (max-width: 980px) {
+  .stage { grid-template-columns: 1fr; }
+  .viewport { min-height: 0; aspect-ratio: 4 / 3; max-width: 100%; }
+}
+@media (max-width: 720px) {
+  .wrap { padding-inline: 16px; }
+  .titleblock { grid-template-columns: 1fr; }
+  .grid2, .method { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .transport { grid-template-columns: auto auto 1fr; }
+  .transport .scrub { grid-column: 1 / -1; grid-row: 2; }
+  .transport .time { text-align: left; min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+  <header class="titleblock">
+    <div>
+      <div class="label">Autonomous Systems · simulation replay</div>
+      <h1>Adaptive Stair-Climbing <span>Vacuum Cleaner</span></h1>
+      <p>A PyBullet physics simulation of the patent-pending design. The robot senses each step with LiDAR, chooses a gait, climbs on its rack-and-pinion units and mops each tread. Everything below is recorded output from the simulator, replayed in your browser.</p>
+    </div>
+    <div class="meta">
+      <span>Team</span><b>K. Saraf, R. Singh, S. Kumar S, B. Babu, S. Basker</b>
+      <span>Advisor</span><b>Dr. Megha P. Arakeri</b>
+      <span>Institute</span><b>MIT Bengaluru</b>
+      <span>Engine</span><b>PyBullet 3.2.7 · 240 Hz</b>
+    </div>
+  </header>
+
+  <nav class="scenarios" id="scenarios" aria-label="Recorded runs"></nav>
+
+  <section class="stage">
+    <div class="viewport" id="viewport">
+      <div class="loading" id="loading">Loading recorded run…</div>
+      <div class="hud">
+        <div class="statechip" id="statechip">—<small></small></div>
+      </div>
+      <div class="viewtools">
+        <button id="followBtn" aria-pressed="true" title="Keep the camera on the robot">Follow robot</button>
+        <button id="resetBtn" title="Reset the camera">Reset view</button>
+      </div>
+      <div class="viewhint">Drag to orbit · scroll to zoom · right-drag to pan</div>
+    </div>
+
+    <aside class="panel" aria-label="Robot state">
+      <div>
+        <div class="label" style="margin-bottom:6px">State machine</div>
+        <ol class="fsm" id="fsm"></ol>
+      </div>
+      <div class="readouts" id="readouts"></div>
+    </aside>
+  </section>
+
+  <section class="card" aria-label="Playback">
+    <div class="transport">
+      <button id="playBtn" aria-label="Play">▶ Play</button>
+      <select id="speedSel" aria-label="Playback speed">
+        <option value="1">1×</option><option value="2">2×</option><option value="4" selected>4×</option>
+        <option value="8">8×</option><option value="16">16×</option>
+      </select>
+      <div class="scrub">
+        <input type="range" id="scrub" min="0" max="1000" value="0" step="1" aria-label="Seek">
+        <div class="strip" id="strip" title="Gait phase over time — click to jump"><canvas id="stripCanvas"></canvas></div>
+      </div>
+      <div class="time" id="timeLbl">0.0 / 0.0 s</div>
+    </div>
+    <div class="legend" id="phaseLegend"></div>
+  </section>
+
+  <section class="grid2">
+    <div class="card">
+      <h3>Body attitude</h3>
+      <p class="note">IMU pitch and roll. Dashed lines are the safety limits (pitch ±20°); crossing them triggers SAFE_ABORT.</p>
+      <div class="chart" id="chartTilt"></div>
+    </div>
+    <div class="card">
+      <h3>Climbing racks</h3>
+      <p class="note">Rack-and-pinion extension under PID control: the front rack lifts the red unit, the rear rack lifts the blue unit.</p>
+      <div class="chart" id="chartRacks"></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="card">
+      <h3>Perception vs ground truth</h3>
+      <p class="note">LiDAR + Kalman estimate for each riser compared with the true staircase. “Touch” is the height where the front wheels actually landed.</p>
+      <div class="tablewrap"><table id="accTable"></table></div>
+      <p class="note" id="runResult"></p>
+    </div>
+    <div class="card">
+      <h3>Decision log</h3>
+      <p class="note">Every state change the controller made, with its reason. Click a line to jump there.</p>
+      <ul class="events" id="events"></ul>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Across 30 random staircases</h2>
+    <p>Each staircase had 5 steps with riser heights of 140–200 mm, tread depths of 325–375 mm and widths of 0.75–1.30 m, all randomized. Results from <span class="mono">python -m analysis.batch --runs 30</span>.</p>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="card">
+    <h2>How the robot decides</h2>
+    <div class="method">
+      <div>
+        <h3>Perceive</h3>
+        <ul>
+          <li>160-beam LiDAR fan with ±4 mm range noise, levelled using the IMU.</li>
+          <li>Each scan is split into treads and risers by local line fitting.</li>
+          <li>A Kalman filter fuses 12 scans into riser height, tread depth and riser position.</li>
+          <li>Side rangefinders measure stair width; odometry tracks travel.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decide</h3>
+        <ul>
+          <li>A 10-state machine runs the gait: scan, align, approach, clean, then front and rear climb phases.</li>
+          <li>A gait library picks LOW / STANDARD / HIGH from the riser height.</li>
+          <li>It refuses risers over 220 mm or taller than the sensor, treads under 320 mm, and stairs the frame cannot span.</li>
+          <li>A tilt watchdog and per-state timeouts trigger SAFE_ABORT.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Act</h3>
+        <ul>
+          <li>PID loops drive each rack, the frame width and the wheels.</li>
+          <li>While the rear units lift, an IMU pitch PID trims the front rack to keep the body level.</li>
+          <li>A heading-hold PID keeps both side units parallel to the walls.</li>
+          <li>The mop head sweeps each tread in rows; touch/stall detection absorbs odometry drift.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">Simplifications: omni-wheels use reduced sideways friction instead of individual rollers; the rear rack pad slides rather than grips; cleaning is counted geometrically where the lowered head passes; ascent only.</p>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(() => {
+  "use strict";
+  const SCENARIOS = [
+    { id: "random", file: "data/random.json", name: "Random staircase", sub: "5 steps, every step different" },
+    { id: "wide", file: "data/wide.json", name: "Wide stairs", sub: "1.2 m, frame extends" },
+    { id: "abort", file: "data/abort.json", name: "Too-high riser", sub: "245 mm third step" },
+  ];
+  const STATES = [
+    ["SCAN", "Scan the next step with LiDAR"],
+    ["ALIGN_WIDTH", "Set frame width x to the stairs"],
+    ["APPROACH", "Drive up to the riser"],
+    ["CLEAN_TREAD", "Mop + vacuum the tread"],
+    ["FRONT_LIFT", "Front racks lift the red units"],
+    ["ADVANCE_FRONT", "Push red units over the next tread"],
+    ["PLACE_FRONT", "Lower red units until they touch"],
+    ["REAR_LIFT", "Rear racks lift the blue units"],
+    ["ADVANCE_REAR", "Pull blue units over the tread"],
+    ["RETRACT_REAR", "Lower blue units onto the tread"],
+  ];
+  const DESC = Object.fromEntries(STATES);
+  DESC.DONE = "Top of the staircase reached";
+  DESC.SAFE_ABORT = "Stopped safely, all actuators held";
+  const PHASES = [
+    { key: "perceive", name: "Perceive & position", tok: "--s1", states: ["SCAN", "ALIGN_WIDTH", "APPROACH"] },
+    { key: "clean", name: "Clean tread", tok: "--s3", states: ["CLEAN_TREAD"] },
+    { key: "front", name: "Front units climb", tok: "--s2", states: ["FRONT_LIFT", "ADVANCE_FRONT", "PLACE_FRONT"] },
+    { key: "rear", name: "Back units climb", tok: "--s4", states: ["REAR_LIFT", "ADVANCE_REAR", "RETRACT_REAR"] },
+    { key: "done", name: "Done", tok: "--ink-3", states: ["DONE"] },
+    { key: "abort", name: "Safe abort", tok: "--crit", states: ["SAFE_ABORT"] },
+  ];
+  const phaseOf = s => PHASES.find(p => p.states.includes(s)) || PHASES[0];
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const $ = id => document.getElementById(id);
+
+  // ---------------------------------------------------------------- state
+  let data = null, times = [], tNow = 0, playing = false, speed = 4, lastTs = null;
+  let follow = true, cache = {}, curScenario = null;
+
+  // ---------------------------------------------------------------- three.js scene
+  THREE.Object3D.DefaultUp.set(0, 0, 1);
+  const vp = $("viewport");
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  vp.prepend(renderer.domElement);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.02, 50);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.12;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 0.75));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+  sun.position.set(-2.5, -3, 5);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 0.5, far: 15 });
+  scene.add(sun, sun.target);
+
+  let world = new THREE.Group(); scene.add(world);
+  let linkGroups = [], dirtMeshes = [], lidarLines = null, themed = [];
+
+  function mat(tok, extra = {}) {
+    const m = new THREE.MeshStandardMaterial(Object.assign({ color: css(tok), roughness: 0.85, metalness: 0.0 }, extra));
+    themed.push([m, tok]);
+    return m;
+  }
+  function applyTheme() {
+    scene.background = new THREE.Color(css("--scene-bg"));
+    themed.forEach(([m, tok]) => m.color.set(css(tok)));
+    drawStrip(); drawCharts();
+  }
+
+  function buildWorld() {
+    scene.remove(world); world = new THREE.Group(); scene.add(world);
+    themed = [];
+    linkGroups = []; dirtMeshes = [];
+    const st = data.stairs, W = st.width;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 8), mat("--floor"));
+    floor.position.set(1, 0, 0); floor.receiveShadow = true; world.add(floor);
+    st.risers.forEach((x, i) => {
+      const d = st.depths[i], z = st.tread_z[i];
+      const m = new THREE.Mesh(new THREE.BoxGeometry(d, W, z), mat(i % 2 ? "--stair-b" : "--stair-a"));
+      m.position.set(x + d / 2, 0, z / 2); m.castShadow = m.receiveShadow = true; world.add(m);
+    });
+    const segs = [[-1.6, 0, 0]].concat(st.risers.map((x, i) => [x, x + st.depths[i], st.tread_z[i]]));
+    const wallMat = mat("--wall", { transparent: true, opacity: 0.55 });
+    segs.forEach(([x0, x1, z]) => [1, -1].forEach(s => {
+      const top = z + st.wall_h;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.04, top), wallMat);
+      m.position.set((x0 + x1) / 2, s * (W / 2 + 0.02), top / 2); m.receiveShadow = true; world.add(m);
+    }));
+    // dirt (instanced, hidden as cells get cleaned)
+    const dirtGeo = new THREE.BoxGeometry(0.028, 0.028, 0.003);
+    const dirtMat = mat("--dirt");
+    data.dirt.forEach(tr => {
+      const n = tr.xs.length * tr.ys.length;
+      const im = new THREE.InstancedMesh(dirtGeo, dirtMat, n);
+      const M = new THREE.Matrix4(); let k = 0;
+      tr.xs.forEach((x, a) => tr.ys.forEach((y, b) => {
+        const j = Math.sin(k * 12.9898) * 43758.5453; const r = j - Math.floor(j);
+        M.makeRotationZ(r * 3); M.setPosition(x + (r - 0.5) * 0.02, y + (0.5 - r) * 0.02, tr.z + 0.002);
+        im.setMatrixAt(k++, M);
+      }));
+      im.userData = { tr, base: Array.from({ length: n }, (_, i) => { const m = new THREE.Matrix4(); im.getMatrixAt(i, m); return m; }), shownTo: -2 };
+      world.add(im); dirtMeshes.push(im);
+    });
+    // robot
+    for (let l = 0; l < data.link_count; l++) { const g = new THREE.Group(); world.add(g); linkGroups.push(g); }
+    const matCache = {};
+    data.shapes.forEach(s => {
+      let geo;
+      if (s.g === "box") geo = new THREE.BoxGeometry(s.d[0], s.d[1], s.d[2]);
+      else if (s.g === "cyl") { geo = new THREE.CylinderGeometry(s.d[1], s.d[1], s.d[0], 28); geo.rotateX(Math.PI / 2); }
+      else geo = new THREE.SphereGeometry(s.d[0], 16, 12);
+      const key = s.c.join(",");
+      matCache[key] = matCache[key] || new THREE.MeshStandardMaterial({ color: new THREE.Color(s.c[0], s.c[1], s.c[2]), roughness: 0.55, metalness: 0.05 });
+      const m = new THREE.Mesh(geo, matCache[key]);
+      m.position.set(...s.p); m.quaternion.set(s.q[0], s.q[1], s.q[2], s.q[3]);
+      m.castShadow = true;
+      linkGroups[s.l].add(m);
+    });
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(80 * 6), 3));
+    lidarLines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xff3b30, transparent: true, opacity: 0.75 }));
+    lidarLines.frustumCulled = false;
+    world.add(lidarLines);
+    applyTheme();
+  }
+
+  function frameAt(t) {
+    let lo = 0, hi = times.length - 1;
+    if (t <= times[0]) return [0, 0];
+    if (t >= times[hi]) return [hi, 0];
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (times[mid] <= t) lo = mid; else hi = mid; }
+    return [lo, (t - times[lo]) / (times[lo + 1] - times[lo])];
+  }
+
+  const qa = new THREE.Quaternion(), qb = new THREE.Quaternion();
+  function poseRobot(i, a) {
+    const A = data.frames[i].P, B = data.frames[Math.min(i + 1, data.frames.length - 1)].P;
+    linkGroups.forEach((g, l) => {
+      const p = A[l], q = B[l];
+      g.position.set(p[0] + (q[0] - p[0]) * a, p[1] + (q[1] - p[1]) * a, p[2] + (q[2] - p[2]) * a);
+      qa.set(p[3], p[4], p[5], p[6]); qb.set(q[3], q[4], q[5], q[6]);
+      g.quaternion.copy(qa).slerp(qb, a);
+    });
+  }
+
+  const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+  function updateDirt(fi) {
+    dirtMeshes.forEach(im => {
+      const { tr, base } = im.userData;
+      if (im.userData.shownTo === fi) return;
+      for (let k = 0; k < tr.f.length; k++) im.setMatrixAt(k, tr.f[k] >= 0 && tr.f[k] <= fi ? ZERO : base[k]);
+      im.instanceMatrix.needsUpdate = true; im.userData.shownTo = fi;
+    });
+  }
+
+  function updateLidar(fi) {
+    let src = null;
+    if (data.frames[fi].s === "SCAN") for (let k = fi; k >= Math.max(0, fi - 3); k--) if (data.lidar[k]) { src = data.lidar[k]; break; }
+    lidarLines.visible = !!src;
+    if (!src) return;
+    const arr = lidarLines.geometry.attributes.position.array; let n = 0;
+    src.h.forEach(h => { if (!h || n >= 80) return; arr.set([...src.o, ...h], n * 6); n++; });
+    lidarLines.geometry.setDrawRange(0, n * 2);
+    lidarLines.geometry.attributes.position.needsUpdate = true;
+  }
+
+  function resetCamera() {
+    const p = data.frames[0].P[0];
+    controls.target.set(p[0] + 0.25, 0, p[2]);
+    camera.position.set(p[0] - 1.25, -1.55, p[2] + 1.0);
+    controls.update();
+  }
+
+  const prevTarget = new THREE.Vector3();
+  function followRobot(i) {
+    if (!follow) return;
+    const p = data.frames[i].P[0];
+    const goal = new THREE.Vector3(p[0] + 0.25, 0, p[2] - 0.05);
+    prevTarget.copy(controls.target);
+    controls.target.lerp(goal, 0.08);
+    camera.position.add(controls.target.clone().sub(prevTarget));
+    sun.position.set(goal.x - 2.5, -3, goal.z + 5); sun.target.position.copy(goal);
+  }
+
+  // ---------------------------------------------------------------- panel
+  function buildPanel() {
+    $("fsm").innerHTML = STATES.map(([s, d]) => `<li data-s="${s}" title="${d}"><i style="background:var(${phaseOf(s).tok})"></i>${s}</li>`).join("");
+    $("phaseLegend").innerHTML = PHASES.map(p => `<span><i style="background:var(${p.tok})"></i>${p.name}</span>`).join("")
+      + `<span><i style="background:#ff3b30"></i>LiDAR beams (while scanning)</span>`;
+  }
+
+  function trueStep(tr) {
+    const st = data.stairs;
+    return tr < st.heights.length ? { h: st.heights[tr] * 1000, d: tr < st.heights.length - 1 ? st.depths[tr] * 1000 : null } : null;
+  }
+
+  let lastStateShown = null;
+  function updatePanel(fi) {
+    const f = data.frames[fi];
+    if (f.s !== lastStateShown) {
+      const ph = phaseOf(f.s);
+      $("statechip").style.borderLeftColor = `var(${ph.tok})`;
+      $("statechip").innerHTML = `${f.s}<small>${DESC[f.s] || ""}</small>`;
+      const idx = STATES.findIndex(s => s[0] === f.s);
+      document.querySelectorAll("#fsm li").forEach((li, k) => {
+        li.classList.toggle("on", k === idx);
+        li.classList.toggle("done", idx >= 0 && k < idx);
+      });
+      lastStateShown = f.s;
+    }
+    const tru = trueStep(f.tr);
+    const nSteps = data.stairs.heights.length;
+    const fmt = (v, u = "mm") => v == null ? "—" : `${v.toFixed(1)} <small>${u}</small>`;
+    $("readouts").innerHTML = `
+      <div><span class="label">On tread</span><span class="v">${f.tr} <small>of ${nSteps}</small></span></div>
+      <div><span class="label">Gait profile</span><span class="v">${f.g || "—"}</span></div>
+      <div><span class="label">Riser est.</span><span class="v">${fmt(f.h)}</span></div>
+      <div><span class="label">Riser true</span><span class="v">${tru ? fmt(tru.h) : "—"}</span></div>
+      <div><span class="label">Tread est.</span><span class="v">${fmt(f.d)}</span></div>
+      <div><span class="label">Frame width x</span><span class="v">${fmt(f.sp)}</span></div>
+      <div><span class="label">Front rack</span><span class="v">${fmt(f.fl)}</span></div>
+      <div><span class="label">Rear rack</span><span class="v">${fmt(f.lg)}</span></div>
+      <div><span class="label">Pitch</span><span class="v">${f.pi >= 0 ? "+" : ""}${f.pi.toFixed(2)} <small>°</small></span></div>
+      <div><span class="label">Roll</span><span class="v">${f.ro >= 0 ? "+" : ""}${f.ro.toFixed(2)} <small>°</small></span></div>
+      <div style="grid-column:1/-1"><span class="label">Stairs cleaned · ${(f.cv * 100).toFixed(1)}%</span><div class="bar"><span style="width:${f.cv * 100}%"></span></div></div>`;
+    document.querySelectorAll("#events li").forEach(li => li.classList.toggle("future", +li.dataset.t > f.t + 0.01));
+  }
+
+  function buildEvidence() {
+    const s = data.summary;
+    const ok = s.result.startsWith("SUCCESS");
+    const rows = s.steps.map(r => {
+      const e = (a, b) => a == null || b == null ? "—" : ((b - a) * 1000 >= 0 ? "+" : "") + ((b - a) * 1000).toFixed(1);
+      const m = v => v == null ? "—" : (v * 1000).toFixed(1);
+      return `<tr><td>Step ${r.step}</td><td>${r.gait || "—"}</td><td class="num">${m(r.h_true)}</td><td class="num">${m(r.h_est)}</td><td class="num err">${e(r.h_true, r.h_est)}</td><td class="num">${m(r.h_contact)}</td><td class="num">${m(r.d_true)}</td><td class="num">${m(r.d_est)}</td></tr>`;
+    }).join("");
+    $("accTable").innerHTML = `<thead><tr><th>Step</th><th>Gait</th><th>h true</th><th>h est.</th><th>error</th><th>touch</th><th>d true</th><th>d est.</th></tr></thead><tbody>${rows}</tbody><caption class="note" style="caption-side:bottom;text-align:left;padding-top:6px">All values in mm.</caption>`;
+    $("runResult").innerHTML = `<span class="pill ${ok ? "ok" : "bad"}">${ok ? "Success" : "Safe abort"}</span> ${s.result.replace(/^(SUCCESS|ABORTED): /, "")} · ${s.steps_climbed}/${s.steps_total} steps · ${s.sim_time_s} s simulated · max pitch ${s.max_pitch_deg}°`;
+    $("events").innerHTML = data.events.map(e => `<li data-t="${e.t}"><span class="mono">${e.t.toFixed(1)} s</span><span><b>${e.s}</b>${e.n ? " · " + e.n : ""}</span></li>`).join("");
+    document.querySelectorAll("#events li").forEach(li => li.addEventListener("click", () => seek(+li.dataset.t + 0.05)));
+  }
+
+  // ---------------------------------------------------------------- phase strip
+  function drawStrip() {
+    if (!data) return;
+    const c = $("stripCanvas"), w = c.clientWidth, h = c.clientHeight, dpr = window.devicePixelRatio || 1;
+    c.width = w * dpr; c.height = h * dpr;
+    const g = c.getContext("2d"); g.scale(dpr, dpr);
+    const T = times[times.length - 1], fr = data.frames;
+    let start = 0;
+    for (let i = 1; i <= fr.length; i++) {
+      if (i === fr.length || phaseOf(fr[i].s) !== phaseOf(fr[start].s)) {
+        g.fillStyle = css(phaseOf(fr[start].s).tok);
+        const x0 = fr[start].t / T * w, x1 = (i === fr.length ? T : fr[i].t) / T * w;
+        g.fillRect(x0, 0, Math.max(1, x1 - x0 - 1), h);
+        start = i;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- charts
+  const charts = [];
+  function makeChart(el, cfg) {
+    const ch = { el, cfg };
+    el.innerHTML = "";
+    el.addEventListener("mousemove", e => hoverChart(ch, e));
+    el.addEventListener("mouseleave", () => { if (ch.tip) ch.tip.hidden = true; if (ch.hover) ch.hover.setAttribute("opacity", 0); });
+    el.addEventListener("click", e => { const t = chartTime(ch, e); if (t != null) seek(t); });
+    charts.push(ch);
+    return ch;
+  }
+  const VBW = 600, VBH = 200, PAD = { l: 42, r: 12, t: 12, b: 26 };
+  function chartTime(ch, e) {
+    const r = ch.el.querySelector("svg").getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width * VBW;
+    if (x < PAD.l || x > VBW - PAD.r) return null;
+    return (x - PAD.l) / (VBW - PAD.l - PAD.r) * times[times.length - 1];
+  }
+  function drawCharts() {
+    if (!data) return;
+    charts.forEach(ch => {
+      const { series, ymin, ymax, ticks, unit, limits } = ch.cfg;
+      const T = times[times.length - 1];
+      const X = t => PAD.l + t / T * (VBW - PAD.l - PAD.r);
+      const Y = v => PAD.t + (1 - (v - ymin) / (ymax - ymin)) * (VBH - PAD.t - PAD.b);
+      const step = Math.max(1, Math.floor(data.frames.length / 900));
+      let s = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="${ch.cfg.aria}">`;
+      ticks.forEach(v => { s += `<line x1="${PAD.l}" x2="${VBW - PAD.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${css("--line")}" stroke-width="1"/><text x="${PAD.l - 6}" y="${Y(v) + 4}" text-anchor="end">${v}${unit}</text>`; });
+      const tstep = T > 120 ? 30 : T > 60 ? 20 : 10;
+      for (let t = 0; t <= T; t += tstep) s += `<text x="${X(t)}" y="${VBH - 8}" text-anchor="middle">${t}s</text>`;
+      (limits || []).forEach(v => { s += `<line x1="${PAD.l}" x2="${VBW - PAD.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${css("--ink-3")}" stroke-dasharray="4 4" stroke-width="1"/>`; });
+      series.forEach(se => {
+        let d = "";
+        for (let i = 0; i < data.frames.length; i += step) { const f = data.frames[i]; d += (i ? "L" : "M") + X(f.t).toFixed(1) + " " + Y(Math.max(ymin, Math.min(ymax, se.get(f)))).toFixed(1); }
+        s += `<path d="${d}" fill="none" stroke="${css(se.tok)}" stroke-width="2" stroke-linejoin="round"/>`;
+      });
+      s += `<line class="playhead" x1="0" x2="0" y1="${PAD.t}" y2="${VBH - PAD.b}" stroke="${css("--ink")}" stroke-width="1.5"/>`;
+      s += `<line class="hover" x1="0" x2="0" y1="${PAD.t}" y2="${VBH - PAD.b}" stroke="${css("--ink-3")}" stroke-width="1" opacity="0"/></svg>`;
+      ch.el.innerHTML = s + `<div class="legend" style="margin-top:4px">${series.map(se => `<span><i style="background:var(${se.tok})"></i>${se.name}</span>`).join("")}</div><div class="tip" hidden></div>`;
+      ch.X = X; ch.playhead = ch.el.querySelector(".playhead"); ch.hover = ch.el.querySelector(".hover"); ch.tip = ch.el.querySelector(".tip");
+    });
+    movePlayheads();
+  }
+  function movePlayheads() { charts.forEach(ch => { if (ch.playhead) { const x = ch.X(tNow); ch.playhead.setAttribute("x1", x); ch.playhead.setAttribute("x2", x); } }); }
+  function hoverChart(ch, e) {
+    const t = chartTime(ch, e);
+    if (t == null || !ch.tip) { if (ch.tip) ch.tip.hidden = true; return; }
+    const [i] = frameAt(t), f = data.frames[i];
+    ch.hover.setAttribute("x1", ch.X(f.t)); ch.hover.setAttribute("x2", ch.X(f.t)); ch.hover.setAttribute("opacity", 1);
+    ch.tip.hidden = false;
+    ch.tip.innerHTML = `<div>${f.t.toFixed(1)} s · ${f.s}</div>` + ch.cfg.series.map(se => `<div><span style="color:var(${se.tok})">■</span> ${se.name}: ${se.get(f).toFixed(1)}${ch.cfg.unit}</div>`).join("");
+    const r = ch.el.getBoundingClientRect();
+    let x = e.clientX - r.left + 12; if (x > r.width - 170) x -= 190;
+    ch.tip.style.left = x + "px"; ch.tip.style.top = (e.clientY - r.top - 10) + "px";
+  }
+
+  // ---------------------------------------------------------------- playback
+  function seek(t) {
+    tNow = Math.max(0, Math.min(times[times.length - 1], t));
+    render(true);
+  }
+  function render(jump) {
+    if (!data) return;
+    const [i, a] = frameAt(tNow);
+    poseRobot(i, a);
+    updateDirt(i);
+    updateLidar(i);
+    updatePanel(i);
+    if (jump && follow) { const p = data.frames[i].P[0]; const goal = new THREE.Vector3(p[0] + 0.25, 0, p[2] - 0.05); camera.position.add(goal.clone().sub(controls.target)); controls.target.copy(goal); }
+    followRobot(i);
+    $("scrub").value = Math.round(tNow / times[times.length - 1] * 1000);
+    $("timeLbl").textContent = `${tNow.toFixed(1)} / ${times[times.length - 1].toFixed(1)} s`;
+    movePlayheads();
+  }
+  function setPlaying(on) {
+    playing = on;
+    $("playBtn").textContent = on ? "❚❚ Pause" : "▶ Play";
+    $("playBtn").setAttribute("aria-label", on ? "Pause" : "Play");
+    lastTs = null;
+  }
+  function loop(ts) {
+    if (playing && data) {
+      if (lastTs != null) {
+        tNow += (ts - lastTs) / 1000 * speed;
+        if (tNow >= times[times.length - 1]) { tNow = times[times.length - 1]; setPlaying(false); }
+      }
+      lastTs = ts;
+      render(false);
+    }
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  function resize() {
+    const w = vp.clientWidth, h = vp.clientHeight || Math.round(w * 0.62);
+    renderer.setSize(w, h, false); renderer.domElement.style.height = h + "px";
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+    drawStrip();
+  }
+
+  async function loadScenario(sc) {
+    curScenario = sc.id;
+    document.querySelectorAll("#scenarios button").forEach(b => b.setAttribute("aria-pressed", b.dataset.id === sc.id));
+    setPlaying(false);
+    $("loading").hidden = false; $("loading").textContent = "Loading recorded run…";
+    try {
+      if (!cache[sc.id]) { const r = await fetch(sc.file); if (!r.ok) throw new Error(r.status); cache[sc.id] = await r.json(); }
+    } catch (err) { $("loading").textContent = "Could not load this recording. Reload the page to try again."; return; }
+    if (curScenario !== sc.id) return;
+    data = cache[sc.id];
+    times = data.frames.map(f => f.t);
+    lastStateShown = null;
+    buildWorld(); buildEvidence();
+    charts.length = 0;
+    makeChart($("chartTilt"), { aria: "Pitch and roll over time", unit: "°", ymin: -25, ymax: 25, ticks: [-20, -10, 0, 10, 20], limits: [-20, 20],
+      series: [{ name: "Pitch", tok: "--s1", get: f => f.pi }, { name: "Roll", tok: "--s2", get: f => f.ro }] });
+    makeChart($("chartRacks"), { aria: "Rack extensions over time", unit: "mm", ymin: -40, ymax: 260, ticks: [0, 100, 200], limits: [],
+      series: [{ name: "Front rack", tok: "--s1", get: f => f.fl }, { name: "Rear rack", tok: "--s2", get: f => f.lg }] });
+    drawCharts();
+    tNow = 0; resetCamera(); render(true); resize();
+    $("loading").hidden = true;
+    setPlaying(true);
+  }
+
+  // ---------------------------------------------------------------- wiring
+  $("scenarios").innerHTML = SCENARIOS.map(s => `<button data-id="${s.id}" aria-pressed="false">${s.name}<small>${s.sub}</small></button>`).join("");
+  document.querySelectorAll("#scenarios button").forEach(b => b.addEventListener("click", () => loadScenario(SCENARIOS.find(s => s.id === b.dataset.id))));
+  $("playBtn").addEventListener("click", () => { if (!data) return; if (!playing && tNow >= times[times.length - 1]) tNow = 0; setPlaying(!playing); });
+  $("speedSel").addEventListener("change", e => { speed = +e.target.value; });
+  $("scrub").addEventListener("input", e => { if (data) seek(e.target.value / 1000 * times[times.length - 1]); });
+  $("strip").addEventListener("click", e => { if (!data) return; const r = e.currentTarget.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * times[times.length - 1]); });
+  $("followBtn").addEventListener("click", e => { follow = !follow; e.currentTarget.setAttribute("aria-pressed", follow); });
+  $("resetBtn").addEventListener("click", () => { if (data) { resetCamera(); render(true); } });
+  document.addEventListener("keydown", e => { if (e.code === "Space" && e.target === document.body) { e.preventDefault(); $("playBtn").click(); } });
+  window.addEventListener("resize", resize);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+  new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  fetch("data/batch.json").then(r => r.ok ? r.json() : null).then(b => {
+    if (!b) return;
+    $("stats").innerHTML = [
+      [`${b.successful_runs}/${b.runs}`, "staircases climbed to the top"],
+      [`${(b.step_climb_success_rate * 100).toFixed(0)}%`, "step climbing success rate"],
+      [`${b.mean_height_error_mm} mm`, "mean riser-height error"],
+      [`${b.mean_depth_error_mm} mm`, "mean tread-depth error"],
+      [`${b.worst_pitch_deg}°`, "worst body pitch (limit 20°)"],
+      [`${(b.mean_reachable_cleaning * 100).toFixed(0)}%`, "tread area cleaned between side units"],
+    ].map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("");
+  }).catch(() => {});
+
+  buildPanel();
+  resize();
+  requestAnimationFrame(loop);
+  loadScenario(SCENARIOS[0]);
+})();
+</script>
